@@ -151,9 +151,10 @@ def print_q_table(q_table, env):
 # Print the Q-Table
 print_q_table(q_table, env)
 
-env = gym.make("FrozenLake-v1", render_mode="rgb_array")
-# Visualize the agent's performance
-visualize_agent(env, q_table, episodes=1, sleep_time=0.5, end_sleep_time=1)
+""" DO NOT RUN ON OOD"""
+# env = gym.make("FrozenLake-v1", render_mode="rgb_array")
+# # Visualize the agent's performance
+# visualize_agent(env, q_table, episodes=1, sleep_time=0.5, end_sleep_time=1)
 
 # Clean up the environment
 env.close()
