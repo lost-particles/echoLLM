@@ -107,7 +107,7 @@ def q_learning_llm(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilo
 
         total_reward /= steps
         rewards_per_episode.append(total_reward)
-        if num_eps < 2000 and (i + 1) % 20 == 0:
+        if (i + 1) % 20 == 0:
             print(f"Episode {i+1} done")
 
         # Decay epsilon
