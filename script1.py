@@ -7,6 +7,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from IPython.display import clear_output
 from time import sleep
+import os
+from datetime import datetime
+import pickle
 
 # Log in to Hugging Face Hub
 login_token = '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'
@@ -67,6 +70,15 @@ def q_learning_llm(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilo
     rewards_per_episode = []
     env.reset()
     grid_map = env.render()
+    
+    # Prepare model saving directories
+    model_root = "models"
+    os.makedirs(model_root, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    run_dir = os.path.join(model_root, timestamp)
+    os.makedirs(run_dir, exist_ok=True)
+    save_every = 500
 
     for i in range(num_episodes):
         state, _ = env.reset()
@@ -101,9 +113,13 @@ def q_learning_llm(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilo
         # Decay epsilon
         epsilon = max(min_epsilon, epsilon * epsilon_decay)
 
-        if (i + 1) % 500 == 0:
-            avg_reward = np.mean(rewards_per_episode[-500:])
+        if (i + 1) % save_every == 0:
+            avg_reward = np.mean(rewards_per_episode[-save_every:])
             print(f"Episode {i+1}/{num_episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
+            save_path = os.path.join(run_dir, f"q_table_ep{i+1}.pkl")
+            with open(save_path, "wb") as f:
+                pickle.dump(q_table, f)
+
 
     return q_table, rewards_per_episode
 
