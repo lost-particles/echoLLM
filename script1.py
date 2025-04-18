@@ -23,7 +23,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 
 env = gym.make("FrozenLake-v1", render_mode="ansi")
-num_eps = 200
+num_eps = 5000
 
 reward_cache = {}
 
