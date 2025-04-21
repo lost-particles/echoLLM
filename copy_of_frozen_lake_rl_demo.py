@@ -148,7 +148,6 @@ model = model.to(device)
 """## LLM Rewards"""
 
 import os
-reward_cache = {}
 
 def get_language_reward(state, action, next_state, grid_map):
     action_map = ['left', 'down', 'right', 'up']
