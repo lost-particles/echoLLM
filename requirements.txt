@@ -1,9 +1,9 @@
 gymnasium==1.1.1
-huggingface_hub==0.30.2
+huggingface_hub
 ipython_pygments_lexers==1.1.1
 pandas==2.2.3
 tokenizers==0.21.1
-torch==2.6.0
+torch
 transformers==4.51.2
 matplotlib==3.9.4
 pillow-11.2.1

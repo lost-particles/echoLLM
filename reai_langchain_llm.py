@@ -7,8 +7,13 @@ Original file is located at
     https://colab.research.google.com/drive/1Gf0jqDgRbyZzc_lclutby4kXgbciBDCU
 """
 
-!pip install gymnasium langchain chromadb --quiet
+!pip install hf_xet --quiet
+!pip install langchain_huggingface --quiet
+!pip install huggingface_hub --quiet
 
+!pip install gymnasium langchain chromadb --quiet
+!pip install -U langchain-community --quiet
+from langchain_huggingface import HuggingFaceEmbeddings
 import gymnasium as gym
 import numpy as np
 import matplotlib.pyplot as plt
@@ -111,6 +116,7 @@ class LLMMemory:
 # Initialize memory
 llm_memory = LLMMemory(vectorstore, conversation_memory)
 
+import time
 def get_language_reward(state, action, next_state, grid_map, memory=None):
     action_map = ['left', 'down', 'right', 'up']
     action_name = action_map[action]
@@ -192,7 +198,7 @@ def q_learning_llm_with_memory(env, num_episodes=5000, alpha=0.5, gamma=0.95,
         total_reward /= steps if steps > 0 else 1
         rewards_per_episode.append(total_reward)
 
-        if i % 20 == 0:
+        if (i + 1) % 20 == 0 and num_episodes<1000:
             print(f"Episode {i+1} done")
 
         # Decay epsilon
@@ -209,7 +215,9 @@ def visualize_agent(env, q_table, episodes=5, sleep_time=0.5, end_sleep_time=2):
         state, _ = env.reset()
         done = False
 
-        while not done:
+        start_time = time.time()
+        end_time = start_time + 60
+        while not done and time.time() < end_time:
             clear_output(wait=True)
             plt.imshow(env.render())
             plt.axis('off')
@@ -237,7 +245,7 @@ def print_q_table(q_table, env):
 
 # Create environment
 env = gym.make("FrozenLake-v1", render_mode="ansi")
-num_eps = 200
+num_eps = 100
 
 # Run Q-learning with memory
 q_table, rewards = q_learning_llm_with_memory(env, num_episodes=num_eps, memory=llm_memory)
@@ -258,6 +266,6 @@ vectorstore.persist()
 
 # Visualize the agent's performance
 env = gym.make("FrozenLake-v1", render_mode="rgb_array")
-visualize_agent(env, q_table, episodes=1, sleep_time=0.05, end_sleep_time=1)
+visualize_agent(env, q_table, episodes=5, sleep_time=0.5, end_sleep_time=1)
 
 env.close()
