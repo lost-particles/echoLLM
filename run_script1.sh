@@ -3,4 +3,10 @@
 #SBATCH --mem=16G
 #SBATCH -t 1:00:00
 #SBATCH -p gpu --gres=gpu:1
-python -u ./'Reintegrating AI'/script1.py
+# Create and activate a virtual environment named reai-venv
+python -m venv reai-venv
+source reai-venv/bin/activate
+
+# Install requirements in the virtual environment
+pip install -r requirements.txt
+python -u ./script1.py
