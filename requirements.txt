@@ -1,5 +1,7 @@
 gymnasium==1.1.1
 huggingface_hub
+langchain_huggingface
+hf_xet
 ipython_pygments_lexers==1.1.1
 pandas==2.2.3
 tokenizers==0.21.1

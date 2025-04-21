@@ -7,12 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1Gf0jqDgRbyZzc_lclutby4kXgbciBDCU
 """
 
-!pip install hf_xet --quiet
-!pip install langchain_huggingface --quiet
-!pip install huggingface_hub --quiet
-
-!pip install gymnasium langchain chromadb --quiet
-!pip install -U langchain-community --quiet
 from langchain_huggingface import HuggingFaceEmbeddings
 import gymnasium as gym
 import numpy as np
