@@ -1,0 +1,66 @@
+## SLURM PROLOG ###############################################################
+##    Job ID : 11096131
+##  Job Name : run_script1.sh
+##  Nodelist : gpu1402
+##      CPUs : 4
+##  Mem/Node : 131072 MB
+## Directory : /oscar/home/zwang571
+##   Job Started : Mon Apr 21 11:25:18 PM EDT 2025
+###############################################################################
+Episode 20 done
+Episode 40 done
+Episode 50/500, Avg Reward: 1.00, Epsilon: 0.78
+Episode 60 done
+Episode 80 done
+Episode 100 done
+Episode 100/500, Avg Reward: 1.00, Epsilon: 0.61
+Episode 120 done
+Episode 140 done
+Episode 150/500, Avg Reward: 1.00, Epsilon: 0.47
+Episode 160 done
+Episode 180 done
+Episode 200 done
+Episode 200/500, Avg Reward: 1.00, Epsilon: 0.37
+Episode 220 done
+Episode 240 done
+Episode 250/500, Avg Reward: 1.00, Epsilon: 0.29
+Episode 260 done
+Episode 280 done
+Episode 300 done
+Episode 300/500, Avg Reward: 1.00, Epsilon: 0.22
+Episode 320 done
+Episode 340 done
+Episode 350/500, Avg Reward: 1.00, Epsilon: 0.17
+Episode 360 done
+Episode 380 done
+Episode 400 done
+Episode 400/500, Avg Reward: 1.00, Epsilon: 0.13
+Episode 420 done
+Episode 440 done
+Episode 450/500, Avg Reward: 1.00, Epsilon: 0.10
+Episode 460 done
+Episode 480 done
+Episode 500 done
+Episode 500/500, Avg Reward: 1.00, Epsilon: 0.08
+
+===== Q-Table =====
+        Left   Down  Right     Up
+State                            
+0      19.71  19.74  19.45  20.00
+1      18.96   5.74  15.00  20.00
+2      16.97  19.38  18.45  20.00
+3      19.99   6.63   5.30  20.00
+4      19.00  16.11   2.97   4.90
+5       0.00   0.00   0.00   0.00
+6      11.31   4.19   1.35   1.25
+7       0.00   0.00   0.00   0.00
+8      15.85  17.36  14.53  18.24
+9      14.34  16.76   9.88  14.81
+10     16.07  13.57   1.53   9.82
+11      0.00   0.00   0.00   0.00
+12      0.00   0.00   0.00   0.00
+13     10.46   6.92  18.28  10.03
+14     17.40   4.69   4.65  14.51
+15      0.00   0.00   0.00   0.00
+===================
+
