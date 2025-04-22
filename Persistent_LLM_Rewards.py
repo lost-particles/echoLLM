@@ -1,0 +1,295 @@
+
+
+
+
+
+
+def visualize_agent(env, q_table, episodes=5, sleep_time=0.5, end_sleep_time=2):
+    for _ in range(episodes):
+        state, _ = env.reset()
+        done = False
+
+        while not done:
+            clear_output(wait=True)
+            plt.imshow(env.render())
+            plt.axis('off')
+            plt.show()
+            sleep(sleep_time)
+
+            action = np.argmax(q_table[state])
+            state, reward, done, truncated, info = env.step(action)
+
+        clear_output(wait=True)
+        plt.imshow(env.render())
+        plt.axis('off')
+        plt.show()
+        sleep(end_sleep_time)
+
+def print_q_table(q_table, env):
+    """Prints the Q-table in a readable format using pandas DataFrame."""
+    actions = ['Left', 'Down', 'Right', 'Up']
+    df = pd.DataFrame(q_table, columns=actions)
+    df.index.name = 'State'
+
+    print("\n===== Q-Table =====")
+    print(df.round(2))  # Round to 2 decimal places for readability
+    print("===================\n")
+
+
+
+import gymnasium as gym
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from IPython.display import clear_output
+from time import sleep
+
+# Create the Frozen Lake environment
+env = gym.make("FrozenLake-v1", render_mode="rgb_array")
+
+def q_learning(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995):
+    q_table = np.zeros([env.observation_space.n, env.action_space.n])
+    epsilon = initial_epsilon
+    rewards_per_episode = []
+
+    for i in range(num_episodes):
+        state, _ = env.reset()  # Correct unpacking of the reset method
+        done = False
+        total_reward = 0
+
+        while not done:
+            if np.random.uniform(0, 1) < epsilon:
+                action = env.action_space.sample()
+            else:
+                action = np.argmax(q_table[state])
+
+            next_state, reward, done, truncated, info = env.step(action)
+
+            q_table[state, action] = q_table[state, action] + alpha * (
+                reward + gamma * np.max(q_table[next_state]) - q_table[state, action]
+            )
+
+            state = next_state
+            total_reward += reward
+
+        rewards_per_episode.append(total_reward)
+
+        # Decay epsilon
+        epsilon = max(min_epsilon, epsilon * epsilon_decay)
+
+        # Print progress every 500 episodes
+        if (i + 1) % 500 == 0:
+            avg_reward = np.mean(rewards_per_episode[-500:])
+            print(f"Episode {i+1}/{num_episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
+
+    return q_table, rewards_per_episode
+
+
+# Train the agent
+q_table, rewards = q_learning(env, num_episodes=20000, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995)
+
+# Plot the rewards
+plt.figure(figsize=(20, 10))
+plt.plot(rewards)
+plt.title('Rewards per Episode')
+plt.xlabel('Episode')
+plt.ylabel('Reward')
+plt.show()
+
+# Print the Q-Table
+print_q_table(q_table, env)
+
+# Visualize the agent's performance
+visualize_agent(env, q_table, episodes=10, sleep_time=0.5, end_sleep_time=2)
+
+# Clean up the environment
+env.close()
+
+from huggingface_hub import login  # Import the login function
+
+# Log in to Hugging Face Hub
+login_token = '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'
+login(login_token)
+
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+
+# model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+# model_name = "meta-llama/Llama-3.2-3B-Instruct"
+model_name = "Qwen/Qwen2.5-0.5B-Instruct" # 20 ep/min
+# model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
+
+# model = AutoModelForCausalLM.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name, low_cpu_mem_usage=True)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+# Use GPU if available
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = model.to(device)
+
+# LLM Rewards
+
+# Global dynamic conversation history (excluding static)
+conversation_history_ids = None  # Tensor
+max_dynamic_tokens = 1024  # Only applies to dynamic tokens, static is always included
+
+def prepare_static_prompt(grid_map):
+    static_prompt = (
+        "### Instruction:\n"
+        "You are evaluating a move made by an agent in the Frozen Lake game.\n"
+        "The lake is a 4x4 grid with 16 states (0 to 15), where the agent starts at state 0 and must reach the goal at state 15.\n"
+        "There are holes that will end the game if the agent falls in, and loops or unnecessary steps should be avoided.\n\n"
+        f"The layout of the grid is: {grid_map}.\n\n"
+        "### History:\n"
+    )
+    return tokenizer(static_prompt, return_tensors="pt")["input_ids"].to(device)
+
+def get_language_reward(
+    state,
+    action,
+    next_state,
+    static_input_ids,
+    log_prompts=False,
+):
+    global conversation_history_ids
+
+    action_map = ['left', 'down', 'right', 'up']
+    action_name = action_map[action]
+
+    # Current move text
+    current_turn_text = (
+        f"Agent: I am at state {state}.\n"
+        f"Environment: You moved {action_name} to state {next_state}.\n\n"
+        "How good was this move on a scale from 0 (very bad) to 1 (excellent)?\n"
+        "Respond with a single decimal number only.\n"
+        "### Response:\n"
+    )
+    current_turn_ids = tokenizer(current_turn_text, return_tensors="pt")["input_ids"].to(device)
+
+    # Combine dynamic tokens
+    if conversation_history_ids is None:
+        dynamic_ids = current_turn_ids
+    else:
+        dynamic_ids = torch.cat([conversation_history_ids, current_turn_ids], dim=-1)
+
+    # Trim dynamic history if needed
+    if dynamic_ids.shape[-1] > max_dynamic_tokens:
+        overflow = dynamic_ids.shape[-1] - max_dynamic_tokens
+        dynamic_ids = dynamic_ids[:, overflow:]
+
+    # Combine with static prompt (not counted for truncation)
+    full_input_ids = torch.cat([static_input_ids, dynamic_ids], dim=-1)
+
+    # Run the model
+    outputs = model.generate(input_ids=full_input_ids, max_new_tokens=10)
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+    if log_prompts:
+        print("==== Prompt ====")
+        print(tokenizer.decode(full_input_ids[0], skip_special_tokens=True))
+        print("==== Response ====")
+        print(response.strip())
+
+    # Parse the response to get the reward
+    try:
+        reward_str = response.split("### Response:")[-1].strip()
+        reward_val = float(reward_str.split()[0])
+        reward_val = max(0.0, min(1.0, reward_val))
+    except:
+        reward_val = 0.0
+
+    # Add full turn (prompt + response) to conversation history
+    full_turn_text = current_turn_text + f"{reward_val}\n"
+    full_turn_ids = tokenizer(full_turn_text, return_tensors="pt")["input_ids"].to(device)
+
+    if conversation_history_ids is None:
+        conversation_history_ids = full_turn_ids
+    else:
+        conversation_history_ids = torch.cat([conversation_history_ids, full_turn_ids], dim=-1)
+
+    # Enforce dynamic history token limit after adding
+    if conversation_history_ids.shape[-1] > max_dynamic_tokens:
+        overflow = conversation_history_ids.shape[-1] - max_dynamic_tokens
+        conversation_history_ids = conversation_history_ids[:, overflow:]
+
+    return reward_val
+
+import gymnasium as gym
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from IPython.display import clear_output
+from time import sleep
+
+def q_learning_llm(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995):
+    q_table = np.zeros([env.observation_space.n, env.action_space.n])
+    epsilon = initial_epsilon
+    rewards_per_episode = []
+    env.reset()
+    grid_map = env.render()
+
+    # One-time setup
+    static_input_ids = prepare_static_prompt(grid_map)
+
+    for i in range(num_episodes):
+        state, _ = env.reset()
+        # print(f"ENV: {env.render()}")
+        done = False
+        total_reward = 0
+        steps = 0
+        while not done:
+            if np.random.uniform(0, 1) < epsilon:
+                action = env.action_space.sample()
+            else:
+                action = np.argmax(q_table[state])
+
+            next_state, _, done, truncated, info = env.step(action)
+
+            # Replace native reward with LLM-generated reward
+            reward = get_language_reward(state,action,next_state,static_input_ids=static_input_ids,log_prompts=False)
+            steps += 1
+
+            q_table[state, action] = q_table[state, action] + alpha * (
+                reward + gamma * np.max(q_table[next_state]) - q_table[state, action]
+            )
+
+            state = next_state
+            total_reward += reward
+
+        total_reward /= steps
+        rewards_per_episode.append(total_reward)
+        if num_eps < 2000 and (i + 1) % 20 == 0:
+            print(f"Episode {i+1} done")
+
+        # Decay epsilon
+        epsilon = max(min_epsilon, epsilon * epsilon_decay)
+
+        if (i + 1) % 500 == 0:
+            avg_reward = np.mean(rewards_per_episode[-500:])
+            print(f"Episode {i+1}/{num_episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
+
+    return q_table, rewards_per_episode
+
+# env = gym.make("FrozenLake-v1", render_mode="rgb_array")
+env = gym.make("FrozenLake-v1", render_mode="ansi")
+num_eps = 50
+
+q_table, rewards = q_learning_llm(env, num_episodes=num_eps)
+
+# Plot the rewards
+plt.figure(figsize=(20, 10))
+plt.plot(rewards)
+plt.title('Rewards per Episode')
+plt.xlabel('Episode')
+plt.ylabel('Reward')
+plt.show()
+
+# Print the Q-Table
+print_q_table(q_table, env)
+
+env = gym.make("FrozenLake-v1", render_mode="rgb_array")
+# Visualize the agent's performance
+visualize_agent(env, q_table, episodes=1, sleep_time=0.5, end_sleep_time=1)
+
+# Clean up the environment
+env.close()
