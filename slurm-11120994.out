@@ -1,0 +1,12 @@
+## SLURM PROLOG ###############################################################
+##    Job ID : 11120994
+##  Job Name : run_script1.sh
+##  Nodelist : gpu2003
+##      CPUs : 4
+##  Mem/Node : 16384 MB
+## Directory : /oscar/home/adufort1/echoLLM
+##   Job Started : Tue Apr 22 06:59:00 PM EDT 2025
+###############################################################################
+Sliding Window Attention is enabled but not implemented for `sdpa`; unexpected results may be encountered.
+usage: script1.py [-h] [--num_eps NUM_EPS] [--save_every SAVE_EVERY]
+script1.py: error: unrecognized arguments: --num-eps 100

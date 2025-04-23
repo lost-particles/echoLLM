@@ -1,0 +1,20 @@
+## SLURM PROLOG ###############################################################
+##    Job ID : 11121053
+##  Job Name : run_script1.sh
+##  Nodelist : gpu2003
+##      CPUs : 4
+##  Mem/Node : 16384 MB
+## Directory : /oscar/home/adufort1/echoLLM
+##   Job Started : Tue Apr 22 07:11:22 PM EDT 2025
+###############################################################################
+Sliding Window Attention is enabled but not implemented for `sdpa`; unexpected results may be encountered.
+No previous data found. Starting fresh.
+Episode 10/10, Avg Reward: 0.88, Epsilon: 0.95
+Traceback (most recent call last):
+  File "/oscar/home/adufort1/echoLLM/./script1.py", line 197, in <module>
+    q_table, rewards = q_learning_llm(env, num_episodes=num_eps, save_every=save_every)
+  File "/oscar/home/adufort1/echoLLM/./script1.py", line 152, in q_learning_llm
+    json.dump(save_data, f)
+  File "/usr/lib64/python3.9/json/__init__.py", line 180, in dump
+    fp.write(chunk)
+TypeError: a bytes-like object is required, not 'str'
