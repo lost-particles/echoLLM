@@ -10,6 +10,8 @@ from time import sleep
 import os
 from datetime import datetime
 import pickle
+import argparse
+import json
 
 # Log in to Hugging Face Hub
 login_token = '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'
@@ -23,15 +25,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 
 env = gym.make("FrozenLake-v1", render_mode="ansi")
-num_eps = 5000
 
 reward_cache = {}
 
 def get_language_reward(state, action, next_state, grid_map):
-    # key = (state, action, next_state)
-    # if key in reward_cache:
-    #     return reward_cache[key]
-
     action_map = ['left', 'down', 'right', 'up']
     action_name = action_map[action]
 
@@ -64,25 +61,53 @@ def get_language_reward(state, action, next_state, grid_map):
     # reward_cache[key] = reward_val
     return reward_val
 
-def q_learning_llm(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995):
+def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995):
     q_table = np.zeros([env.observation_space.n, env.action_space.n])
     epsilon = initial_epsilon
     rewards_per_episode = []
+    ep_num = 0
     env.reset()
     grid_map = env.render()
     
     # Prepare model saving directories
     model_root = "models"
-    os.makedirs(model_root, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    if not os.path.exists(model_root):
+        os.makedirs(model_root, exist_ok=True)
+
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    except Exception as e:
+        print(f"Error generating timestamp: {e}")
+        timestamp = "default_timestamp"
+        
+    # Load the most recent q_table, ep_num, epsilon, and rewards_per_episode if they exist
+    latest_data = None
+    timestamps = [d for d in os.listdir(model_root) if os.path.isdir(os.path.join(model_root, d))]
+    if timestamps:
+        latest_timestamp = max(timestamps)
+        latest_run_dir = os.path.join(model_root, latest_timestamp)
+        json_files = [f for f in os.listdir(latest_run_dir) if f.endswith(".json")]
+        if json_files:
+            latest_json_file = max(json_files, key=lambda x: int(x.split('_')[1]))
+            latest_json_path = os.path.join(latest_run_dir, latest_json_file)
+            with open(latest_json_path, "r") as f:
+                latest_data = json.load(f)
+
+    if latest_data is not None:
+        q_table = np.array(latest_data.get("q_table", q_table))
+        ep_num = latest_data.get("ep_num", 0)
+        epsilon = latest_data.get("epsilon", initial_epsilon)
+        rewards_per_episode = latest_data.get("rewards_per_episode", [])
+        print(f"Loaded data from {latest_json_path}")
+    else:
+        print("No previous data found. Starting fresh.")
     run_dir = os.path.join(model_root, timestamp)
-    os.makedirs(run_dir, exist_ok=True)
-    save_every = 500
+    os.makedirs(run_dir, exist_ok=False)
 
-    for i in range(num_episodes):
+    for i in range(ep_num, num_episodes):
+        ep_num = i+1
         state, _ = env.reset()
-        # print(f"ENV: {env.render()}")
         done = False
         total_reward = 0
         steps = 0
@@ -116,22 +141,17 @@ def q_learning_llm(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilo
         if (i + 1) % save_every == 0:
             avg_reward = np.mean(rewards_per_episode[-save_every:])
             print(f"Episode {i+1}/{num_episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
-            save_path = os.path.join(run_dir, f"q_table_ep{i+1}.pkl")
-            with open(save_path, "wb") as f:
-                pickle.dump(q_table, f)
-
+            save_path = os.path.join(run_dir, f"ep_{i+1}_stats.json")
+            save_data = {
+                "q_table": q_table,
+                "ep_num": ep_num,
+                "epsilon": epsilon,
+                "rewards_per_episode": rewards_per_episode
+            }
+            with open(save_path, "w") as f:
+                json.dump(save_data, f)
 
     return q_table, rewards_per_episode
-
-q_table, rewards = q_learning_llm(env, num_episodes=num_eps)
-# Plot the rewards
-plt.figure(figsize=(20, 10))
-plt.plot(rewards)
-plt.title('Rewards per Episode')
-plt.xlabel('Episode')
-plt.ylabel('Reward')
-plt.show()
-
 
 def visualize_agent(env, q_table, episodes=5, sleep_time=0.5, end_sleep_time=2):
     for _ in range(episodes):
@@ -164,13 +184,32 @@ def print_q_table(q_table, env):
     print(df.round(2))  # Round to 2 decimal places for readability
     print("===================\n")
 
-# Print the Q-Table
-print_q_table(q_table, env)
+if __name__ == "__main__":
+    # required to provide number of episodes and save_every
+    # provide the number of episodes and save_every as command line arguments
+    parser = argparse.ArgumentParser(description="Run Q-Learning with LLM rewards on FrozenLake.")
+    parser.add_argument("--num_eps", type=int, default=1000, help="Number of episodes to run.")
+    parser.add_argument("--save_every", type=int, default=100, help="Frequency of saving the model.")
+    args = parser.parse_args()
 
-""" DO NOT RUN ON OOD"""
-# env = gym.make("FrozenLake-v1", render_mode="rgb_array")
-# # Visualize the agent's performance
-# visualize_agent(env, q_table, episodes=1, sleep_time=0.5, end_sleep_time=1)
+    num_eps = args.num_eps
+    save_every = args.save_every
+    q_table, rewards = q_learning_llm(env, num_episodes=num_eps, save_every=save_every)
+    # Plot the rewards
+    plt.figure(figsize=(20, 10))
+    plt.plot(rewards)
+    plt.title('Rewards per Episode')
+    plt.xlabel('Episode')
+    plt.ylabel('Reward')
+    plt.show()
 
-# Clean up the environment
-env.close()
+    # Print the Q-Table
+    print_q_table(q_table, env)
+
+    """ DO NOT RUN ON OOD"""
+    # env = gym.make("FrozenLake-v1", render_mode="rgb_array")
+    # # Visualize the agent's performance
+    # visualize_agent(env, q_table, episodes=1, sleep_time=0.5, end_sleep_time=1)
+
+    # Clean up the environment
+    env.close()
