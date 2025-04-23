@@ -11,7 +11,6 @@ import os
 from datetime import datetime
 import pickle
 import argparse
-import json
 
 # Log in to Hugging Face Hub
 login_token = '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'
@@ -87,21 +86,22 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
     if timestamps:
         latest_timestamp = max(timestamps)
         latest_run_dir = os.path.join(model_root, latest_timestamp)
-        json_files = [f for f in os.listdir(latest_run_dir) if f.endswith(".json")]
-        if json_files:
-            latest_json_file = max(json_files, key=lambda x: int(x.split('_')[1]))
-            latest_json_path = os.path.join(latest_run_dir, latest_json_file)
-            with open(latest_json_path, "r") as f:
-                latest_data = json.load(f)
+        pkl_files = [f for f in os.listdir(latest_run_dir) if f.endswith(".pkl")]
+        if pkl_files:
+            latest_pkl_file = max(pkl_files, key=lambda x: int(x.split('_')[1]))
+            latest_pkl_path = os.path.join(latest_run_dir, latest_pkl_file)
+            with open(latest_pkl_path, "rb") as f:
+                latest_data = pickle.load(f)
 
     if latest_data is not None:
-        q_table = np.array(latest_data.get("q_table", q_table))
+        q_table = latest_data.get("q_table", q_table)
         ep_num = latest_data.get("ep_num", 0)
         epsilon = latest_data.get("epsilon", initial_epsilon)
         rewards_per_episode = latest_data.get("rewards_per_episode", [])
-        print(f"Loaded data from {latest_json_path}")
+        print(f"Loaded data from {latest_pkl_path}")
     else:
         print("No previous data found. Starting fresh.")
+    
     run_dir = os.path.join(model_root, timestamp)
     os.makedirs(run_dir, exist_ok=False)
 
@@ -141,15 +141,15 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
         if (i + 1) % save_every == 0:
             avg_reward = np.mean(rewards_per_episode[-save_every:])
             print(f"Episode {i+1}/{num_episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
-            save_path = os.path.join(run_dir, f"ep_{i+1}_stats.json")
+            save_path = os.path.join(run_dir, f"ep_{i+1}_stats.pkl")
             save_data = {
                 "q_table": q_table,
                 "ep_num": ep_num,
                 "epsilon": epsilon,
                 "rewards_per_episode": rewards_per_episode
             }
-            with open(save_path, "w") as f:
-                json.dump(save_data, f)
+            with open(save_path, "wb") as f:
+                pickle.dump(save_data, f)
 
     return q_table, rewards_per_episode
 
@@ -187,14 +187,20 @@ def print_q_table(q_table, env):
 if __name__ == "__main__":
     # required to provide number of episodes and save_every
     # provide the number of episodes and save_every as command line arguments
-    parser = argparse.ArgumentParser(description="Run Q-Learning with LLM rewards on FrozenLake.")
-    parser.add_argument("--num_eps", type=int, default=1000, help="Number of episodes to run.")
+    parser = argparse.ArgumentParser(description="Run Q-Learning with LLM-based rewards.")
+    parser.add_argument("--num_eps", type=int, default=5000, help="Number of episodes to run.")
     parser.add_argument("--save_every", type=int, default=100, help="Frequency of saving the model.")
     args = parser.parse_args()
 
     num_eps = args.num_eps
     save_every = args.save_every
+    start = datetime.now()
+    print(f"Start time: {start}")
     q_table, rewards = q_learning_llm(env, num_episodes=num_eps, save_every=save_every)
+    end = datetime.now()
+    print(f"End time: {end}")
+    print(f"Total time taken: {end - start}")
+    
     # Plot the rewards
     plt.figure(figsize=(20, 10))
     plt.plot(rewards)
@@ -202,6 +208,18 @@ if __name__ == "__main__":
     plt.xlabel('Episode')
     plt.ylabel('Reward')
     plt.show()
+    
+    # save the plot
+    plot_path = "models"
+    timestamps = [d for d in os.listdir(plot_path) if os.path.isdir(os.path.join(plot_path, d))]
+    if timestamps:
+        latest_timestamp = max(timestamps)
+        plot_path = os.path.join(plot_path, latest_timestamp)
+    else:
+        plot_path = os.path.join(plot_path, "default_run")
+
+    plot_path = os.path.join(plot_path, "rewards_plot.png")
+    plt.savefig(plot_path)
 
     # Print the Q-Table
     print_q_table(q_table, env)

@@ -1,0 +1,39 @@
+## SLURM PROLOG ###############################################################
+##    Job ID : 11128344
+##  Job Name : run_script1.sh
+##  Nodelist : gpu2001
+##      CPUs : 4
+##  Mem/Node : 16384 MB
+## Directory : /oscar/home/adufort1/echoLLM
+##   Job Started : Tue Apr 22 11:27:39 PM EDT 2025
+###############################################################################
+Sliding Window Attention is enabled but not implemented for `sdpa`; unexpected results may be encountered.
+Loaded data from models/2025-04-22_19-37-37/ep_100_stats.pkl
+Episode 120 done
+Episode 140 done
+Episode 160 done
+Episode 180 done
+Episode 200 done
+Episode 200/200, Avg Reward: 0.88, Epsilon: 0.37
+
+===== Q-Table =====
+        Left   Down  Right     Up
+State                            
+0      17.37  15.60  16.34  17.45
+1      12.55   1.79   4.11  17.40
+2      16.21  16.26  16.27  16.92
+3      12.59  14.00  14.15  16.43
+4      13.42  13.91  11.72  11.86
+5       0.00   0.00   0.00   0.00
+6       2.99   1.25   0.90  13.19
+7       0.00   0.00   0.00   0.00
+8       4.63   8.03   5.17   8.43
+9       2.41   7.10   2.72   1.33
+10      1.32   5.15   0.94   1.19
+11      0.00   0.00   0.00   0.00
+12      0.00   0.00   0.00   0.00
+13      4.51   0.77   4.01   3.47
+14      0.42   0.00   0.91   2.84
+15      0.00   0.00   0.00   0.00
+===================
+
