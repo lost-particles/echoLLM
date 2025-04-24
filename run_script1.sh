@@ -9,4 +9,4 @@
 # pip install huggingface_hub
 # pip install transformers
 # pip install torch
-python -u ./script1.py --num_eps 100 --save_every 100
+python -u ./script1.py --num_eps 1000 --save_every 100
