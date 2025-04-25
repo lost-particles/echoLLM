@@ -1,8 +1,38 @@
+import gymnasium as gym
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from IPython.display import clear_output
+from time import sleep
+from huggingface_hub import login  # Import the login function
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+import os
+from datetime import datetime
+import pickle
+import argparse
 
+# Log in to Hugging Face Hub
+login_token = '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'
+login(login_token)
 
+# model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+# model_name = "meta-llama/Llama-3.2-3B-Instruct"
+model_name = "Qwen/Qwen2.5-0.5B-Instruct" # 20 ep/min
+# model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
 
+# model = AutoModelForCausalLM.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 
+# Use GPU if available
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = model.to(device)
 
+env = gym.make("FrozenLake-v1", render_mode="ansi")
+# Global dynamic conversation history (excluding static)
+conversation_history_ids = None  # Tensor
+max_dynamic_tokens = 1024  # Only applies to dynamic tokens, static is always included
 
 def visualize_agent(env, q_table, episodes=5, sleep_time=0.5, end_sleep_time=2):
     for _ in range(episodes):
@@ -35,17 +65,6 @@ def print_q_table(q_table, env):
     print(df.round(2))  # Round to 2 decimal places for readability
     print("===================\n")
 
-
-
-import gymnasium as gym
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
-from IPython.display import clear_output
-from time import sleep
-
-# Create the Frozen Lake environment
-env = gym.make("FrozenLake-v1", render_mode="rgb_array")
 
 def q_learning(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995):
     q_table = np.zeros([env.observation_space.n, env.action_space.n])
@@ -83,55 +102,6 @@ def q_learning(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilon=1.
             print(f"Episode {i+1}/{num_episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
 
     return q_table, rewards_per_episode
-
-
-# Train the agent
-q_table, rewards = q_learning(env, num_episodes=20000, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995)
-
-# Plot the rewards
-plt.figure(figsize=(20, 10))
-plt.plot(rewards)
-plt.title('Rewards per Episode')
-plt.xlabel('Episode')
-plt.ylabel('Reward')
-plt.show()
-
-# Print the Q-Table
-print_q_table(q_table, env)
-
-# Visualize the agent's performance
-visualize_agent(env, q_table, episodes=10, sleep_time=0.5, end_sleep_time=2)
-
-# Clean up the environment
-env.close()
-
-from huggingface_hub import login  # Import the login function
-
-# Log in to Hugging Face Hub
-login_token = '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'
-login(login_token)
-
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
-
-# model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-# model_name = "meta-llama/Llama-3.2-3B-Instruct"
-model_name = "Qwen/Qwen2.5-0.5B-Instruct" # 20 ep/min
-# model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
-
-# model = AutoModelForCausalLM.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name, low_cpu_mem_usage=True)
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-# Use GPU if available
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = model.to(device)
-
-# LLM Rewards
-
-# Global dynamic conversation history (excluding static)
-conversation_history_ids = None  # Tensor
-max_dynamic_tokens = 1024  # Only applies to dynamic tokens, static is always included
 
 def prepare_static_prompt(grid_map):
     static_prompt = (
@@ -214,26 +184,60 @@ def get_language_reward(
 
     return reward_val
 
-import gymnasium as gym
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
-from IPython.display import clear_output
-from time import sleep
 
-def q_learning_llm(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995):
+# LLM Rewards
+
+def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995):
     q_table = np.zeros([env.observation_space.n, env.action_space.n])
     epsilon = initial_epsilon
     rewards_per_episode = []
+    ep_num = 0
     env.reset()
     grid_map = env.render()
+
+    # Prepare model saving directories
+    model_root = "models"
+
+    if not os.path.exists(model_root):
+        os.makedirs(model_root, exist_ok=True)
+
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    except Exception as e:
+        print(f"Error generating timestamp: {e}")
+        timestamp = "default_timestamp"
+
+    # Load the most recent q_table, ep_num, epsilon, and rewards_per_episode if they exist
+    latest_data = None
+    timestamps = [d for d in os.listdir(model_root) if os.path.isdir(os.path.join(model_root, d))]
+    if timestamps:
+        latest_timestamp = max(timestamps)
+        latest_run_dir = os.path.join(model_root, latest_timestamp)
+        pkl_files = [f for f in os.listdir(latest_run_dir) if f.endswith(".pkl")]
+        if pkl_files:
+            latest_pkl_file = max(pkl_files, key=lambda x: int(x.split('_')[1]))
+            latest_pkl_path = os.path.join(latest_run_dir, latest_pkl_file)
+            with open(latest_pkl_path, "rb") as f:
+                latest_data = pickle.load(f)
+
+    if latest_data is not None:
+        q_table = latest_data.get("q_table", q_table)
+        ep_num = latest_data.get("ep_num", 0)
+        epsilon = latest_data.get("epsilon", initial_epsilon)
+        rewards_per_episode = latest_data.get("rewards_per_episode", [])
+        print(f"Loaded data from {latest_pkl_path}")
+    else:
+        print("No previous data found. Starting fresh.")
+
+    run_dir = os.path.join(model_root, timestamp)
+    os.makedirs(run_dir, exist_ok=False)
 
     # One-time setup
     static_input_ids = prepare_static_prompt(grid_map)
 
     for i in range(num_episodes):
+        ep_num = i + 1
         state, _ = env.reset()
-        # print(f"ENV: {env.render()}")
         done = False
         total_reward = 0
         steps = 0
@@ -264,32 +268,65 @@ def q_learning_llm(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilo
         # Decay epsilon
         epsilon = max(min_epsilon, epsilon * epsilon_decay)
 
-        if (i + 1) % 500 == 0:
-            avg_reward = np.mean(rewards_per_episode[-500:])
-            print(f"Episode {i+1}/{num_episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
-
+        if (i + 1) % save_every == 0:
+            avg_reward = np.mean(rewards_per_episode[-save_every:])
+            print(f"Episode {i + 1}/{num_episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
+            save_path = os.path.join(run_dir, f"ep_{i + 1}_stats.pkl")
+            save_data = {
+                "q_table": q_table,
+                "ep_num": ep_num,
+                "epsilon": epsilon,
+                "rewards_per_episode": rewards_per_episode
+            }
+            with open(save_path, "wb") as f:
+                pickle.dump(save_data, f)
     return q_table, rewards_per_episode
 
-# env = gym.make("FrozenLake-v1", render_mode="rgb_array")
-env = gym.make("FrozenLake-v1", render_mode="ansi")
-num_eps = 50
 
-q_table, rewards = q_learning_llm(env, num_episodes=num_eps)
+if __name__ == "__main__":
+    # required to provide number of episodes and save_every
+    # provide the number of episodes and save_every as command line arguments
+    parser = argparse.ArgumentParser(description="Run Q-Learning with LLM-based rewards.")
+    parser.add_argument("--num_eps", type=int, default=5000, help="Number of episodes to run.")
+    parser.add_argument("--save_every", type=int, default=100, help="Frequency of saving the model.")
+    args = parser.parse_args()
 
-# Plot the rewards
-plt.figure(figsize=(20, 10))
-plt.plot(rewards)
-plt.title('Rewards per Episode')
-plt.xlabel('Episode')
-plt.ylabel('Reward')
-plt.show()
+    num_eps = args.num_eps
+    save_every = args.save_every
+    start = datetime.now()
+    print(f"Start time: {start}")
+    q_table, rewards = q_learning_llm(env, num_episodes=num_eps, save_every=save_every)
+    end = datetime.now()
+    print(f"End time: {end}")
+    print(f"Total time taken: {end - start}")
 
-# Print the Q-Table
-print_q_table(q_table, env)
+    # Plot the rewards
+    plt.figure(figsize=(20, 10))
+    plt.plot(rewards)
+    plt.title('Rewards per Episode')
+    plt.xlabel('Episode')
+    plt.ylabel('Reward')
+    plt.show()
 
-env = gym.make("FrozenLake-v1", render_mode="rgb_array")
-# Visualize the agent's performance
-visualize_agent(env, q_table, episodes=1, sleep_time=0.5, end_sleep_time=1)
+    # save the plot
+    plot_path = "models"
+    timestamps = [d for d in os.listdir(plot_path) if os.path.isdir(os.path.join(plot_path, d))]
+    if timestamps:
+        latest_timestamp = max(timestamps)
+        plot_path = os.path.join(plot_path, latest_timestamp)
+    else:
+        plot_path = os.path.join(plot_path, "default_run")
 
-# Clean up the environment
-env.close()
+    plot_path = os.path.join(plot_path, "rewards_plot.png")
+    plt.savefig(plot_path)
+
+    # Print the Q-Table
+    print_q_table(q_table, env)
+
+    """ DO NOT RUN ON OOD"""
+    # env = gym.make("FrozenLake-v1", render_mode="rgb_array")
+    # # Visualize the agent's performance
+    # visualize_agent(env, q_table, episodes=1, sleep_time=0.5, end_sleep_time=1)
+
+    # Clean up the environment
+    env.close()
