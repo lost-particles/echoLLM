@@ -1,8 +1,12 @@
 #!/bin/bash
-#SBATCH -n 4
-#SBATCH --mem=16G
-#SBATCH -t 00:30:00
+#SBATCH -n 1
+#SBATCH --mem=128G
+#SBATCH -t 06:00:00
 #SBATCH -p gpu --gres=gpu:1
 
+# Install requirements in the virtual environment
 pip install -r requirements.txt
-python -u ./Persistent_LLM_Rewards.py --num_eps 1000 --save_every 50 --max_dynamic_tokens 4096
+pip install huggingface_hub
+pip install transformers
+pip install torch
+python -u ./Persistent_LLM_Rewards.py
