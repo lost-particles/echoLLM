@@ -7,11 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1icIEBN8yU_Sz5vmNCA1r1ZS8NtFomO3N
 """
 
-!pip install huggingface_hub --quiet
-!pip install transformers --quiet
-!pip install gymnasium -quiet
-!pip install gymnasium[toy-text] --quiet
-
 from huggingface_hub import login
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
@@ -24,6 +19,7 @@ from time import sleep
 import os
 from datetime import datetime
 import pickle
+import argparse
 
 # Login
 login_token = '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'
@@ -74,29 +70,33 @@ def get_language_reward(state, action, next_state, grid_map, memory=None, summar
 
     history_str = ""
     if memory:
-        history_str = "Here are recent steps:\n" + "\n".join(
+        history_str = f"Here are the {len(memory)} most recent moves:\n" + "\n".join(
             [f"{h[0]} -> {h[2]} via {action_map[h[1]]}" for h in memory]
         ) + "\n"
 
     summary_str = ""
     if summary_text:
         summary_str = f"\nAgent memory: {summary_text}\n"
-
+    
     prompt = (
         f"### Instruction:\n"
-        f"You are evaluating a move made by an agent in Frozen Lake (4x4 grid, goal at state 15).\n"
-        f"The layout is: {grid_map}.\n"
+        f"You are evaluating a move made by an agent in the Frozen Lake game.\n"
+        f"The lake is a 4x4 grid with 16 states (0 to 15), where the agent starts at state 0 and must reach the goal at state 15.\n"
+        f"There are holes that will end the game if the agent falls in, and loops or unnecessary steps should be avoided.\n\n"
+        f"The layout of the grid is: {grid_map}.\n"
         f"{history_str}"
-        f"The current move: {state} to {next_state} via {action_name}.\n"
+        f"Current move: the agent moved from state {state} to state {next_state} by going {action_name}.\n"
         f"{summary_str}"
-        f"Rate this move from 0 (bad) to 1 (excellent).\n"
+        f"How good was this move on a scale from 0 (very bad) to 1 (excellent)?\n"
+        f"Respond with a single decimal number only.\n"
         f"### Response:\n"
     )
 
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    outputs = model.generate(**inputs, max_new_tokens=10)
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
 
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    outputs = model.generate(**inputs, max_new_tokens=50)
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    
     try:
         reward_str = response.split("### Response:")[-1].strip()
         reward_val = float(reward_str.split()[0])
@@ -116,7 +116,7 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, memory_type="none", a
     env.reset()
     grid_map = env.render()
 
-    model_root = "models"
+    model_root = "memory-models"
     os.makedirs(model_root, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_dir = os.path.join(model_root, timestamp)
@@ -191,25 +191,6 @@ def print_q_table(q_table, env):
     print(df.round(2))
     print("===================\n")
 
-# Run with memory
-memory_type = "short"  # Options: "none", "short", "summary"
-num_eps = 5000
-q_table, rewards = q_learning_llm(env, num_episodes=num_eps, memory_type=memory_type)
-
-# Plot rewards
-plt.figure(figsize=(20, 10))
-plt.plot(rewards)
-plt.title(f'Rewards per Episode ({memory_type} memory)')
-plt.xlabel('Episode')
-plt.ylabel('Reward')
-plt.show()
-
-print_q_table(q_table, env)
-
-# Visualization (commented for OOD)
-# env = gym.make("FrozenLake-v1", render_mode="rgb_array")
-# visualize_agent(env, q_table, episodes=1)
-env.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Q-Learning with LLM-based rewards.")
@@ -235,13 +216,13 @@ if __name__ == "__main__":
     # Plot the rewards
     plt.figure(figsize=(20, 10))
     plt.plot(rewards)
-    plt.title('Rewards per Episode')
+    plt.title(f'Rewards per Episode ({memory_type} memory)')
     plt.xlabel('Episode')
     plt.ylabel('Reward')
     plt.show()
     
     # save the plot
-    plot_path = "models"
+    plot_path = "memory-models"
     timestamps = [d for d in os.listdir(plot_path) if os.path.isdir(os.path.join(plot_path, d))]
     if timestamps:
         latest_timestamp = max(timestamps)
@@ -249,7 +230,7 @@ if __name__ == "__main__":
     else:
         plot_path = os.path.join(plot_path, "default_run")
 
-    plot_path = os.path.join(plot_path, "rewards_plot.png")
+    plot_path = os.path.join(plot_path, f"rewards_plot_{memory_type}.png")
     plt.savefig(plot_path)
 
     # Print the Q-Table
