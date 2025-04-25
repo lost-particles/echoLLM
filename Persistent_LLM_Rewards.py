@@ -12,6 +12,7 @@ from datetime import datetime
 import pickle
 import argparse
 
+print(torch.cuda.is_available())
 # Log in to Hugging Face Hub
 login_token = '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'
 login(login_token)
