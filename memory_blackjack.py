@@ -40,12 +40,6 @@ def summarize_experience(episode_history):
     action_map = ['stick', 'hit']
     summary_prompt = (
         "### Instruction:\n"
-        "You are evaluating a move made by an agent in the Blackjack game.\n"
-        "The agent wants to beat the dealer by having a hand value closer to 21, without going over.\n"
-        "Cards are drawn from an infinite deck with replacement. Face cards (J, Q, K) are worth 10, and aces can count as 11 (usable ace) or 1.\n"
-        "The dealer shows one card and draws until reaching 17 or more.\n"
-        "Rewards are:\n"
-        "- Win: +1\n- Lose: -1\n- Draw: 0\n- Win with natural blackjack: +1.5 (natural=True), +1 (natural=False)\n\n"
         "Summarize this agent’s experience in Blackjack. What mistakes or good moves did it make?\n"
         "Transitions:\n" +
         "\n".join([
@@ -72,7 +66,12 @@ def get_language_reward(state, action, next_state, memory=None, summary_text=Non
 
     prompt = (
         "### Instruction:\n"
-        "You are evaluating a move made by an agent in Blackjack (goal: beat the dealer without busting; win=+1, lose=-1, draw=0, natural blackjack=+1.5).\n"
+        "You are evaluating a move made by an agent in the Blackjack game.\n"
+        "The agent wants to beat the dealer by having a hand value closer to 21, without going over.\n"
+        "Cards are drawn from an infinite deck with replacement. Face cards (J, Q, K) are worth 10, and aces can count as 11 (usable ace) or 1.\n"
+        "The dealer shows one card and draws until reaching 17 or more.\n"
+        "Rewards are:\n"
+        "- Win: +1\n- Lose: -1\n- Draw: 0\n- Win with natural blackjack: +1.5 (natural=True), +1 (natural=False)\n\n"
         "State format: (player_sum, dealer_showing, usable_ace).\n"
         f"{history_str}"
         f"Move: {state} -> {next_state} via {action_name}."
@@ -84,13 +83,14 @@ def get_language_reward(state, action, next_state, memory=None, summary_text=Non
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     outputs = model.generate(**inputs, max_new_tokens=10)
     resp = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
+    # print("LLM response: ", resp)
+    # print("score: ", resp.strip().split("\n")[-3])
     try:
-        score = float(resp.strip().split()[0])
+        score = float(resp.strip().split("\n")[-3])
         return max(0.0, min(1.0, score))
     except:
         return 0.0
-
+    
 def q_learning_llm(env, num_episodes, memory_type="none",
                    alpha=0.5, gamma=0.95,
                    initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995):
