@@ -32,7 +32,7 @@ model = model.to(device)
 env = gym.make("FrozenLake-v1", render_mode="ansi")
 # Global dynamic conversation history (excluding static)
 conversation_history_ids = None  # Tensor
-max_dynamic_tokens = 1024  # Only applies to dynamic tokens, static is always included
+#max_dynamic_tokens = None
 
 def visualize_agent(env, q_table, episodes=5, sleep_time=0.5, end_sleep_time=2):
     for _ in range(episodes):
@@ -194,6 +194,7 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
     ep_num = 0
     env.reset()
     grid_map = env.render()
+    global conversation_history_ids
 
     # Prepare model saving directories
     model_root = "models"
@@ -225,6 +226,7 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
         ep_num = latest_data.get("ep_num", 0)
         epsilon = latest_data.get("epsilon", initial_epsilon)
         rewards_per_episode = latest_data.get("rewards_per_episode", [])
+        conversation_history_ids = latest_data.get("conversation_history_ids", None)
         print(f"Loaded data from {latest_pkl_path}")
     else:
         print("No previous data found. Starting fresh.")
@@ -235,7 +237,7 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
     # One-time setup
     static_input_ids = prepare_static_prompt(grid_map)
 
-    for i in range(num_episodes):
+    for i in range(ep_num, num_episodes):
         ep_num = i + 1
         state, _ = env.reset()
         done = False
@@ -276,7 +278,8 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
                 "q_table": q_table,
                 "ep_num": ep_num,
                 "epsilon": epsilon,
-                "rewards_per_episode": rewards_per_episode
+                "rewards_per_episode": rewards_per_episode,
+                "conversation_history_ids": conversation_history_ids
             }
             with open(save_path, "wb") as f:
                 pickle.dump(save_data, f)
@@ -284,15 +287,19 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
 
 
 if __name__ == "__main__":
+    global max_dynamic_tokens
     # required to provide number of episodes and save_every
     # provide the number of episodes and save_every as command line arguments
     parser = argparse.ArgumentParser(description="Run Q-Learning with LLM-based rewards.")
     parser.add_argument("--num_eps", type=int, default=5000, help="Number of episodes to run.")
     parser.add_argument("--save_every", type=int, default=100, help="Frequency of saving the model.")
+    parser.add_argument("--max_dynamic_tokens", type=int, default=1024, help="Context length for the llm")
     args = parser.parse_args()
 
     num_eps = args.num_eps
     save_every = args.save_every
+    max_dynamic_tokens = args.max_dynamic_tokens # Only applies to dynamic tokens, static is always included
+    print(f'using max_dynamic_tokens as {max_dynamic_tokens}')
     start = datetime.now()
     print(f"Start time: {start}")
     q_table, rewards = q_learning_llm(env, num_episodes=num_eps, save_every=save_every)
