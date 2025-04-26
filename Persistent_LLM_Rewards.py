@@ -215,12 +215,15 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
     if timestamps:
         latest_timestamp = max(timestamps)
         latest_run_dir = os.path.join(model_root, latest_timestamp)
-        pkl_files = [f for f in os.listdir(latest_run_dir) if f.endswith(".pkl")]
-        if pkl_files:
-            latest_pkl_file = max(pkl_files, key=lambda x: int(x.split('_')[1]))
-            latest_pkl_path = os.path.join(latest_run_dir, latest_pkl_file)
-            with open(latest_pkl_path, "rb") as f:
-                latest_data = pickle.load(f)
+        dump_files = [f for f in os.listdir(latest_run_dir) if f.endswith(".pkl") or f.endswith(".pt")]
+        if dump_files:
+            latest_dump_file = max(dump_files, key=lambda x: int(x.split('_')[1]))
+            latest_dump_path = os.path.join(latest_run_dir, latest_dump_file)
+            if latest_dump_path.endswith(".pkl"):
+                with open(latest_dump_path, "rb") as f:
+                    latest_data = pickle.load(f)
+            elif latest_dump_path.endswith(".pt"):
+                latest_data = torch.load(latest_dump_path, map_location=device, weights_only=False)
 
     if latest_data is not None:
         q_table = latest_data.get("q_table", q_table)
@@ -228,7 +231,7 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
         epsilon = latest_data.get("epsilon", initial_epsilon)
         rewards_per_episode = latest_data.get("rewards_per_episode", [])
         conversation_history_ids = latest_data.get("conversation_history_ids", None)
-        print(f"Loaded data from {latest_pkl_path}")
+        print(f"Loaded data from {latest_dump_path}")
     else:
         print("No previous data found. Starting fresh.")
 
@@ -238,7 +241,7 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
     # One-time setup
     static_input_ids = prepare_static_prompt(grid_map)
 
-    for i in range(ep_num, num_episodes):
+    for i in range(ep_num, ep_num+num_episodes):
         ep_num = i + 1
         state, _ = env.reset()
         done = False
@@ -274,7 +277,7 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
         if (i + 1) % save_every == 0:
             avg_reward = np.mean(rewards_per_episode[-save_every:])
             print(f"Episode {i + 1}/{num_episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
-            save_path = os.path.join(run_dir, f"ep_{i + 1}_stats.pkl")
+            save_path = os.path.join(run_dir, f"ep_{i + 1}_stats.pt")
             save_data = {
                 "q_table": q_table,
                 "ep_num": ep_num,
@@ -282,8 +285,7 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
                 "rewards_per_episode": rewards_per_episode,
                 "conversation_history_ids": conversation_history_ids
             }
-            with open(save_path, "wb") as f:
-                pickle.dump(save_data, f)
+            torch.save(save_data, save_path)
     return q_table, rewards_per_episode
 
 
