@@ -111,6 +111,11 @@ def prepare_static_prompt(grid_map):
         "The lake is a 4x4 grid with 16 states (0 to 15), where the agent starts at state 0 and must reach the goal at state 15.\n"
         "There are holes that will end the game if the agent falls in, and loops or unnecessary steps should be avoided.\n\n"
         f"The layout of the grid is: {grid_map}.\n\n"
+        "When evaluating the move, consider the following:\n"
+        "- Penalize moves that return the agent to a recently visited state without clear progress.\n"
+        "- Reward moves that bring the agent closer to the goal or explore new parts of the map.\n"
+        "- Repeated cycling between a small set of states should be discouraged.\n"
+        "- Avoid rewarding safe but stagnant behavior (e.g., staying in a loop just to avoid holes).\n\n"
         "### History:\n"
     )
     return tokenizer(static_prompt, return_tensors="pt")["input_ids"].to(device)
@@ -123,12 +128,19 @@ def get_language_reward(
     log_prompts=False,
 ):
     global conversation_history_ids
+    global recent_history
 
     action_map = ['left', 'down', 'right', 'up']
     action_name = action_map[action]
 
+    # Summarize the N most recent transitions
+    window_summary = "\n".join(
+        [f"{i + 1}. State {s} → [{a}] → State {ns}" for i, (s, a, ns) in enumerate(recent_history)]
+    )
+
     # Current move text
     current_turn_text = (
+        f"### Recent Transitions:\n{window_summary}\n\n"
         f"Agent: I am at state {state}.\n"
         f"Environment: You moved {action_name} to state {next_state}.\n\n"
         "How good was this move on a scale from 0 (very bad) to 1 (excellent)?\n"
@@ -196,6 +208,8 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
     env.reset()
     grid_map = env.render()
     global conversation_history_ids
+    global sliding_summary_window
+    global recent_history
 
     # Prepare model saving directories
     model_root = "models"
@@ -257,6 +271,9 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
 
             # Replace native reward with LLM-generated reward
             reward = get_language_reward(state,action,next_state,static_input_ids=static_input_ids,log_prompts=False)
+            recent_history.append((state, action, next_state))
+            if len(recent_history) > sliding_summary_window:
+                recent_history.pop(0)
             steps += 1
 
             q_table[state, action] = q_table[state, action] + alpha * (
@@ -270,6 +287,7 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
         rewards_per_episode.append(total_reward)
         if num_eps < 2000 and (i + 1) % 20 == 0:
             print(f"Episode {i+1} done")
+            print(f'Summary of Recent History : {recent_history}')
 
         # Decay epsilon
         epsilon = max(min_epsilon, epsilon * epsilon_decay)
@@ -291,18 +309,23 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
 
 if __name__ == "__main__":
     global max_dynamic_tokens
+    global sliding_summary_window
+    global recent_history
+    recent_history = []
     # required to provide number of episodes and save_every
     # provide the number of episodes and save_every as command line arguments
     parser = argparse.ArgumentParser(description="Run Q-Learning with LLM-based rewards.")
     parser.add_argument("--num_eps", type=int, default=5000, help="Number of episodes to run.")
     parser.add_argument("--save_every", type=int, default=100, help="Frequency of saving the model.")
     parser.add_argument("--max_dynamic_tokens", type=int, default=1024, help="Context length for the llm")
+    parser.add_argument("--sliding_summary_window", type=int, default=20, help="Sliding window size for keeping previous moves, to summarize over")
     args = parser.parse_args()
 
     num_eps = args.num_eps
     save_every = args.save_every
     max_dynamic_tokens = args.max_dynamic_tokens # Only applies to dynamic tokens, static is always included
     print(f'using max_dynamic_tokens as {max_dynamic_tokens}')
+    sliding_summary_window = args.sliding_summary_window
     start = datetime.now()
     print(f"Start time: {start}")
     q_table, rewards = q_learning_llm(env, num_episodes=num_eps, save_every=save_every)
