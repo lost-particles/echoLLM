@@ -112,12 +112,51 @@ def prepare_static_prompt(grid_map):
         "There are holes that will end the game if the agent falls in, and loops or unnecessary steps should be avoided.\n\n"
         f"The layout of the grid is: {grid_map}.\n\n"
         "When evaluating the move, consider the following:\n"
-        "- Penalize moves that return the agent to a recently visited state without clear progress.\n"
-        "- Reward moves that bring the agent closer to the goal or explore new parts of the map.\n"
-        "- Repeated cycling between a small set of states should be discouraged.\n"
-        "- Avoid rewarding safe but stagnant behavior (e.g., staying in a loop just to avoid holes).\n\n"
+        "- Strongly penalize moves that revisit recently visited states without progress.\n"
+        "- Penalize risky or clearly wrong moves (e.g., falling into holes or reversing for no reason).\n"
+        "- Reward moves that bring the agent closer to the goal, explore new areas, or make smart progress.\n"
+        "- Repeated cycling or safe but stagnant behavior should get low or negative scores.\n"
+        "- Excellent moves that show efficient advancement should receive high positive scores.\n\n"
+        "Rate the move on a scale from -5.0 (very bad) to 5.0 (excellent).\n"
+        "Do not explain your reasoning—only output a single decimal number.\n\n"
+
+        "### Examples:\n\n"
+
+        "1. Bad loop move:\n"
+        "- Recent Transitions:\n"
+        "  1. State 0 → [right] → State 1\n"
+        "  2. State 1 → [left] → State 0\n"
+        "  3. State 0 → [right] → State 1\n"
+        "- Agent: I am at state 1.\n"
+        "- Environment: You moved left to state 0.\n"
+        "- Response: -4.0\n\n"
+
+        "2. Dangerous or unproductive move (into a known hole):\n"
+        "- Recent Transitions:\n"
+        "  1. State 5 → [down] → State 9 (hole)\n"
+        "- Agent: I am at state 5.\n"
+        "- Environment: You moved down to state 9.\n"
+        "- Response: -5.0\n\n"
+
+        "3. Moderate positive move (safe exploration):\n"
+        "- Recent Transitions:\n"
+        "  1. State 0 → [right] → State 1\n"
+        "  2. State 1 → [right] → State 2\n"
+        "- Agent: I am at state 2.\n"
+        "- Environment: You moved down to state 6.\n"
+        "- Response: 3.0\n\n"
+
+        "4. Excellent strategic move (toward goal with new state):\n"
+        "- Recent Transitions:\n"
+        "  1. State 5 → [right] → State 6\n"
+        "  2. State 6 → [down] → State 10\n"
+        "- Agent: I am at state 10.\n"
+        "- Environment: You moved down to state 14.\n"
+        "- Response: 5.0\n\n"
+
         "### History:\n"
     )
+
     return tokenizer(static_prompt, return_tensors="pt")["input_ids"].to(device)
 
 def get_language_reward(
@@ -143,7 +182,7 @@ def get_language_reward(
         f"### Recent Transitions:\n{window_summary}\n\n"
         f"Agent: I am at state {state}.\n"
         f"Environment: You moved {action_name} to state {next_state}.\n\n"
-        "How good was this move on a scale from 0 (very bad) to 1 (excellent)?\n"
+        "How good was this move on a scale from-5.0 (very bad) to 5.0 (excellent)?\n"
         "Respond with a single decimal number only.\n"
         "### Response:\n"
     )
@@ -201,7 +240,7 @@ def get_language_reward(
 # LLM Rewards
 
 def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995):
-    q_table = np.zeros([env.observation_space.n, env.action_space.n])
+    q_table = np.ones([env.observation_space.n, env.action_space.n])
     epsilon = initial_epsilon
     rewards_per_episode = []
     ep_num = 0
@@ -276,16 +315,21 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
                 recent_history.pop(0)
             steps += 1
 
+            normalized_reward = reward/5.0
             q_table[state, action] = q_table[state, action] + alpha * (
-                reward + gamma * np.max(q_table[next_state]) - q_table[state, action]
+                normalized_reward + gamma * np.max(q_table[next_state]) - q_table[state, action]
             )
 
             state = next_state
             total_reward += reward
 
+            if steps > 1000:
+                print("Agent likely stuck; breaking early.")
+                break
+
         total_reward /= steps
         rewards_per_episode.append(total_reward)
-        if num_eps < 2000 and (i + 1) % 20 == 0:
+        if num_episodes < 2000 and (i + 1) % 20 == 0:
             print(f"Episode {i+1} done")
             print(f'Summary of Recent History : {recent_history}')
 
