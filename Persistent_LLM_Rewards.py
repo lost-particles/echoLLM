@@ -18,8 +18,8 @@ login_token = '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'
 login(login_token)
 
 # model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-# model_name = "meta-llama/Llama-3.2-3B-Instruct"
-model_name = "Qwen/Qwen2.5-0.5B-Instruct" # 20 ep/min
+model_name = "meta-llama/Llama-3.2-3B-Instruct"
+# model_name = "Qwen/Qwen2.5-0.5B-Instruct" # 20 ep/min
 # model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
 
 # model = AutoModelForCausalLM.from_pretrained(model_name)
@@ -33,28 +33,9 @@ model = model.to(device)
 env = gym.make("FrozenLake-v1", render_mode="ansi")
 # Global dynamic conversation history (excluding static)
 conversation_history_ids = None  # Tensor
-#max_dynamic_tokens = None
 
-def visualize_agent(env, q_table, episodes=5, sleep_time=0.5, end_sleep_time=2):
-    for _ in range(episodes):
-        state, _ = env.reset()
-        done = False
 
-        while not done:
-            clear_output(wait=True)
-            plt.imshow(env.render())
-            plt.axis('off')
-            plt.show()
-            sleep(sleep_time)
-
-            action = np.argmax(q_table[state])
-            state, reward, done, truncated, info = env.step(action)
-
-        clear_output(wait=True)
-        plt.imshow(env.render())
-        plt.axis('off')
-        plt.show()
-        sleep(end_sleep_time)
+# max_dynamic_tokens = None
 
 def print_q_table(q_table, env):
     """Prints the Q-table in a readable format using pandas DataFrame."""
@@ -67,7 +48,8 @@ def print_q_table(q_table, env):
     print("===================\n")
 
 
-def q_learning(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995):
+def q_learning(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01,
+               epsilon_decay=0.995):
     q_table = np.zeros([env.observation_space.n, env.action_space.n])
     epsilon = initial_epsilon
     rewards_per_episode = []
@@ -86,7 +68,7 @@ def q_learning(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilon=1.
             next_state, reward, done, truncated, info = env.step(action)
 
             q_table[state, action] = q_table[state, action] + alpha * (
-                reward + gamma * np.max(q_table[next_state]) - q_table[state, action]
+                    reward + gamma * np.max(q_table[next_state]) - q_table[state, action]
             )
 
             state = next_state
@@ -100,71 +82,147 @@ def q_learning(env, num_episodes=5000, alpha=0.5, gamma=0.95, initial_epsilon=1.
         # Print progress every 500 episodes
         if (i + 1) % 500 == 0:
             avg_reward = np.mean(rewards_per_episode[-500:])
-            print(f"Episode {i+1}/{num_episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
+            print(f"Episode {i + 1}/{num_episodes}, Avg Reward: {avg_reward:.2f}, Epsilon: {epsilon:.2f}")
 
     return q_table, rewards_per_episode
 
-def prepare_static_prompt(grid_map):
+
+def prepare_static_prompt(env):
+    tile_layout = "\n".join(" ".join(cell.decode('utf-8') for cell in row) for row in env.unwrapped.desc)
+    state_layout = "\n".join(
+        " ".join(f"{r * 4 + c:2d}" for c in range(4)) for r in range(4)
+    )
+
     static_prompt = (
         "### Instruction:\n"
         "You are evaluating a move made by an agent in the Frozen Lake game.\n"
-        "The lake is a 4x4 grid with 16 states (0 to 15), where the agent starts at state 0 and must reach the goal at state 15.\n"
-        "There are holes that will end the game if the agent falls in, and loops or unnecessary steps should be avoided.\n\n"
-        f"The layout of the grid is: {grid_map}.\n\n"
-        "When evaluating the move, consider the following:\n"
-        "- Strongly penalize moves that revisit recently visited states without progress.\n"
-        "- Penalize risky or clearly wrong moves (e.g., falling into holes or reversing for no reason).\n"
-        "- Reward moves that bring the agent closer to the goal, explore new areas, or make smart progress.\n"
-        "- Repeated cycling or safe but stagnant behavior should get low or negative scores.\n"
-        "- Excellent moves that show efficient advancement should receive high positive scores.\n\n"
-        "Rate the move on a scale from -5.0 (very bad) to 5.0 (excellent).\n"
-        "Do not explain your reasoning—only output a single decimal number.\n\n"
+        "The lake is a grid world (default 4x4), where the agent starts at the top-left corner (state 0) and must reach the goal at the bottom-right corner (state 15).\n"
+        "The grid includes:\n"
+        "- 'S': Start tile (safe)\n"
+        "- 'F': Frozen tile (safe)\n"
+        "- 'H': Hole tile (falls in and ends episode)\n"
+        "- 'G': Goal tile (success, ends episode)\n\n"
+        "The lake is slippery, so the agent may move in an unintended direction with some probability. Moves that appear risky or end in holes should be penalized.\n"
+        "Efficient, safe exploration toward the goal should be rewarded.\n\n"
+        f"The 4x4 grid is mapped as follows (state numbers):\n{state_layout}\n\n"
+        f"The tile layout of the grid is:\n{tile_layout}\n\n"
+        "When evaluating a move, consider:\n"
+        "- Strongly penalize falling into a hole.\n"
+        "- Penalize cycling or backtracking.\n"
+        "- Reward exploring new safe tiles.\n"
+        "- Highly reward smart moves that approach the goal.\n\n"
+        "How good was this move on a scale from -5.0 (very bad) to 5.0 (excellent)?\n"
+        "Respond with a single decimal number only (e.g., -3.0, 0.0, 4.5).\n\n"
 
         "### Examples:\n\n"
 
-        "1. Bad loop move:\n"
+        "1. Very bad move (fell into a hole):\n"
         "- Recent Transitions:\n"
-        "  1. State 0 → [right] → State 1\n"
-        "  2. State 1 → [left] → State 0\n"
-        "  3. State 0 → [right] → State 1\n"
-        "- Agent: I am at state 1.\n"
-        "- Environment: You moved left to state 0.\n"
-        "- Response: -4.0\n\n"
-
-        "2. Dangerous or unproductive move (into a known hole):\n"
-        "- Recent Transitions:\n"
-        "  1. State 5 → [down] → State 9 (hole)\n"
+        "  1. State 5 → [down] → State 9\n"
         "- Agent: I am at state 5.\n"
-        "- Environment: You moved down to state 9.\n"
+        "- Environment: You moved down to state 9 (a H tile).\n"
+        "- Note: State 9 is a hole. The episode ends here.\n"
+        "- Distance from current state to goal (state 15): 6 steps.\n"
         "- Response: -5.0\n\n"
 
-        "3. Moderate positive move (safe exploration):\n"
+        "2. Bad move (returned to a previously visited state unnecessarily):\n"
         "- Recent Transitions:\n"
-        "  1. State 0 → [right] → State 1\n"
-        "  2. State 1 → [right] → State 2\n"
-        "- Agent: I am at state 2.\n"
-        "- Environment: You moved down to state 6.\n"
+        "  1. State 1 → [left] → State 0\n"
+        "  2. State 0 → [right] → State 1\n"
+        "- Agent: I am at state 1.\n"
+        "- Environment: You moved left to state 0 (a S tile).\n"
+        "- Distance from current state to goal (state 15): 6 steps.\n"
+        "- Response: -3.0\n\n"
+
+        "3. Slightly unhelpful move (small loop):\n"
+        "- Recent Transitions:\n"
+        "  1. State 4 → [right] → State 5\n"
+        "- Agent: I am at state 5.\n"
+        "- Environment: You moved left to state 4 (a F tile).\n"
+        "- Distance from current state to goal (state 15): 7 steps.\n"
+        "- Response: -1.0\n\n"
+
+        "4. Neutral move (sideways, not harmful or helpful):\n"
+        "- Recent Transitions:\n"
+        "  1. State 5 → [down] → State 9\n"
+        "- Agent: I am at state 9.\n"
+        "- Environment: You moved right to state 10 (a F tile).\n"
+        "- Distance from current state to goal (state 15): 5 steps.\n"
+        "- Response: 0.0\n\n"
+
+        "5. Good move (exploring new area and making progress):\n"
+        "- Recent Transitions:\n"
+        "  1. State 1 → [right] → State 2\n"
+        "  2. State 2 → [down] → State 6\n"
+        "- Agent: I am at state 6.\n"
+        "- Environment: You moved right to state 7 (a F tile).\n"
+        "- Distance from current state to goal (state 15): 3 steps.\n"
         "- Response: 3.0\n\n"
 
-        "4. Excellent strategic move (toward goal with new state):\n"
+        "6. Excellent move (direct step to goal):\n"
         "- Recent Transitions:\n"
-        "  1. State 5 → [right] → State 6\n"
-        "  2. State 6 → [down] → State 10\n"
-        "- Agent: I am at state 10.\n"
-        "- Environment: You moved down to state 14.\n"
+        "  1. State 10 → [down] → State 14\n"
+        "- Agent: I am at state 14.\n"
+        "- Environment: You moved right to state 15 (a G tile).\n"
+        "- Distance from current state to goal (state 15): 0 steps.\n"
         "- Response: 5.0\n\n"
+
+        "7. Good move (near the goal with safe progress):\n"
+        "- Recent Transitions:\n"
+        "  1. State 6 → [down] → State 10\n"
+        "  2. State 10 → [down] → State 14\n"
+        "- Agent: I am at state 14.\n"
+        "- Environment: You moved right to state 15 (a G tile).\n"
+        "- Note: State 15 is the GOAL. The episode ends successfully here.\n"
+        "- Response: 5.0\n\n"
+
+        "8. Helpful move (progressed toward the goal while avoiding danger):\n"
+        "- Recent Transitions:\n"
+        "  1. State 1 → [right] → State 2\n"
+        "  2. State 2 → [down] → State 6\n"
+        "- Agent: I am at state 6.\n"
+        "- Environment: You moved down to state 10 (a F tile).\n"
+        "- Distance from current state to goal (state 15): 2 steps.\n"
+        "- Response: 3.5\n\n"
+
+        "9. Solid move (escaped a potential loop and went forward):\n"
+        "- Recent Transitions:\n"
+        "  1. State 4 → [left] → State 3\n"
+        "  2. State 3 → [right] → State 4\n"
+        "- Agent: I am at state 4.\n"
+        "- Environment: You moved down to state 8 (a F tile).\n"
+        "- Distance from current state to goal (state 15): 3 steps.\n"
+        "- Response: 2.0\n\n"
 
         "### History:\n"
     )
+    print(f'The static prompt is : {static_prompt}')
 
     return tokenizer(static_prompt, return_tensors="pt")["input_ids"].to(device)
 
+
+def is_hole(env, state):
+    """Returns True if the given state is a hole ('H') in the FrozenLake map."""
+    base_env = env.unwrapped
+    desc = base_env.desc
+    ncols = desc.shape[1]
+    row, col = divmod(state, ncols)
+    return desc[row][col] == b'H'
+
+
+def distance_to_goal(state, goal_state=15, grid_width=4):
+    """Returns the Manhattan distance between current state and the goal."""
+    row1, col1 = divmod(state, grid_width)
+    row2, col2 = divmod(goal_state, grid_width)
+    return abs(row1 - row2) + abs(col1 - col2)
+
+
 def get_language_reward(
-    state,
-    action,
-    next_state,
-    static_input_ids,
-    log_prompts=False,
+        state,
+        action,
+        next_state,
+        static_input_ids,
+        log_prompts=False,
 ):
     global conversation_history_ids
     global recent_history
@@ -172,17 +230,35 @@ def get_language_reward(
     action_map = ['left', 'down', 'right', 'up']
     action_name = action_map[action]
 
+    desc = env.unwrapped.desc
+    ncols = desc.shape[1]
+
+    row, col = divmod(next_state, ncols)
+    tile = desc[row][col].decode("utf-8")
+
     # Summarize the N most recent transitions
     window_summary = "\n".join(
         [f"{i + 1}. State {s} → [{a}] → State {ns}" for i, (s, a, ns) in enumerate(recent_history)]
     )
 
-    # Current move text
+    # Build optional components
+    extra_lines = ""
+    if tile == "H":
+        extra_lines = f"Note: State {next_state} is a hole. The episode ends here.\n"
+    elif tile == "G":
+        extra_lines = f"Note: State {next_state} is the GOAL. The episode ends successfully here.\n"
+    else:
+        goal_state = 15
+        dist = distance_to_goal(next_state, goal_state, ncols)
+        extra_lines = f"Distance from current state to goal (state {goal_state}): {dist} steps.\n"
+
+    # Final prompt
     current_turn_text = (
         f"### Recent Transitions:\n{window_summary}\n\n"
         f"Agent: I am at state {state}.\n"
-        f"Environment: You moved {action_name} to state {next_state}.\n\n"
-        "How good was this move on a scale from-5.0 (very bad) to 5.0 (excellent)?\n"
+        f"Environment: You moved {action_name} to state {next_state} (a {tile} tile).\n"
+        f"{extra_lines}\n"
+        "How good was this move on a scale from -5.0 (very bad) to 5.0 (excellent)?\n"
         "Respond with a single decimal number only.\n"
         "### Response:\n"
     )
@@ -216,7 +292,8 @@ def get_language_reward(
     try:
         reward_str = response.split("### Response:")[-1].strip()
         reward_val = float(reward_str.split()[0])
-        reward_val = max(0.0, min(1.0, reward_val))
+        print(f'parsed response from LLM : {reward_val}')
+        reward_val = np.clip(reward_val, -5.0, 5.0)
     except:
         reward_val = 0.0
 
@@ -239,16 +316,22 @@ def get_language_reward(
 
 # LLM Rewards
 
-def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01, epsilon_decay=0.995):
+def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95, initial_epsilon=1.0, min_epsilon=0.01,
+                   epsilon_decay=0.995):
     q_table = np.ones([env.observation_space.n, env.action_space.n])
+    # Overwrite hole and terminal states
+    for state in range(env.observation_space.n):
+        if is_hole(env, state) or state == 15:  # goal is also terminal
+            q_table[state] = np.zeros(env.action_space.n)
+
     epsilon = initial_epsilon
     rewards_per_episode = []
     ep_num = 0
     env.reset()
-    grid_map = env.render()
     global conversation_history_ids
     global sliding_summary_window
     global recent_history
+    global raw_rewards
 
     # Prepare model saving directories
     model_root = "models"
@@ -292,15 +375,18 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
     os.makedirs(run_dir, exist_ok=False)
 
     # One-time setup
-    static_input_ids = prepare_static_prompt(grid_map)
+    static_input_ids = prepare_static_prompt(env)
 
-    for i in range(ep_num, ep_num+num_episodes):
+    for i in range(ep_num, ep_num + num_episodes):
         ep_num = i + 1
         state, _ = env.reset()
         done = False
         total_reward = 0
         steps = 0
         while not done:
+            if is_hole(env, state) or state == 15:
+                break  # Agent is dead or reached the goal
+
             if np.random.uniform(0, 1) < epsilon:
                 action = env.action_space.sample()
             else:
@@ -309,15 +395,16 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
             next_state, _, done, truncated, info = env.step(action)
 
             # Replace native reward with LLM-generated reward
-            reward = get_language_reward(state,action,next_state,static_input_ids=static_input_ids,log_prompts=False)
+            reward = get_language_reward(state, action, next_state, static_input_ids=static_input_ids,
+                                         log_prompts=False)
             recent_history.append((state, action, next_state))
             if len(recent_history) > sliding_summary_window:
                 recent_history.pop(0)
             steps += 1
-
-            normalized_reward = reward/5.0
+            raw_rewards.append(reward)
+            # normalized_reward = reward/5.0
             q_table[state, action] = q_table[state, action] + alpha * (
-                normalized_reward + gamma * np.max(q_table[next_state]) - q_table[state, action]
+                    reward + gamma * np.max(q_table[next_state]) - q_table[state, action]
             )
 
             state = next_state
@@ -327,11 +414,12 @@ def q_learning_llm(env, num_episodes=5000, save_every=100, alpha=0.5, gamma=0.95
                 print("Agent likely stuck; breaking early.")
                 break
 
-        total_reward /= steps
+        # total_reward /= steps
         rewards_per_episode.append(total_reward)
         if num_episodes < 2000 and (i + 1) % 20 == 0:
-            print(f"Episode {i+1} done")
+            print(f"Episode {i + 1} done")
             print(f'Summary of Recent History : {recent_history}')
+            print(f'Last 20 raw rewards are : {raw_rewards[-20:]}')
 
         # Decay epsilon
         epsilon = max(min_epsilon, epsilon * epsilon_decay)
@@ -355,19 +443,22 @@ if __name__ == "__main__":
     global max_dynamic_tokens
     global sliding_summary_window
     global recent_history
+    global raw_rewards
     recent_history = []
+    raw_rewards = []
     # required to provide number of episodes and save_every
     # provide the number of episodes and save_every as command line arguments
     parser = argparse.ArgumentParser(description="Run Q-Learning with LLM-based rewards.")
     parser.add_argument("--num_eps", type=int, default=5000, help="Number of episodes to run.")
     parser.add_argument("--save_every", type=int, default=100, help="Frequency of saving the model.")
     parser.add_argument("--max_dynamic_tokens", type=int, default=1024, help="Context length for the llm")
-    parser.add_argument("--sliding_summary_window", type=int, default=20, help="Sliding window size for keeping previous moves, to summarize over")
+    parser.add_argument("--sliding_summary_window", type=int, default=20,
+                        help="Sliding window size for keeping previous moves, to summarize over")
     args = parser.parse_args()
 
     num_eps = args.num_eps
     save_every = args.save_every
-    max_dynamic_tokens = args.max_dynamic_tokens # Only applies to dynamic tokens, static is always included
+    max_dynamic_tokens = args.max_dynamic_tokens  # Only applies to dynamic tokens, static is always included
     print(f'using max_dynamic_tokens as {max_dynamic_tokens}')
     sliding_summary_window = args.sliding_summary_window
     start = datetime.now()
@@ -377,33 +468,38 @@ if __name__ == "__main__":
     print(f"End time: {end}")
     print(f"Total time taken: {end - start}")
 
-    # Plot the rewards
+    # Plot 1: Rewards per Episode
     plt.figure(figsize=(20, 10))
     plt.plot(rewards)
     plt.title('Rewards per Episode')
     plt.xlabel('Episode')
     plt.ylabel('Reward')
-    plt.show()
 
-    # save the plot
+    # Save this plot
     plot_path = "models"
     timestamps = [d for d in os.listdir(plot_path) if os.path.isdir(os.path.join(plot_path, d))]
     if timestamps:
         latest_timestamp = max(timestamps)
-        plot_path = os.path.join(plot_path, latest_timestamp)
+        save_dir = os.path.join(plot_path, latest_timestamp)
     else:
-        plot_path = os.path.join(plot_path, "default_run")
+        save_dir = os.path.join(plot_path, "default_run")
 
-    plot_path = os.path.join(plot_path, "rewards_plot.png")
-    plt.savefig(plot_path)
+    os.makedirs(save_dir, exist_ok=True)
+    plt.savefig(os.path.join(save_dir, "rewards_per_episode.png"))
+    plt.show()
+
+    # Plot 2: Histogram of Rewards
+    plt.figure(figsize=(12, 6))
+    plt.hist(rewards, bins=20)
+    plt.title("Distribution of LLM Rewards")
+    plt.xlabel("Reward")
+    plt.ylabel("Frequency")
+
+    # Save this plot
+    plt.savefig(os.path.join(save_dir, "rewards_histogram.png"))
+    plt.show()
 
     # Print the Q-Table
     print_q_table(q_table, env)
-
-    """ DO NOT RUN ON OOD"""
-    # env = gym.make("FrozenLake-v1", render_mode="rgb_array")
-    # # Visualize the agent's performance
-    # visualize_agent(env, q_table, episodes=1, sleep_time=0.5, end_sleep_time=1)
-
     # Clean up the environment
     env.close()
